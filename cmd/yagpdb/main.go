@@ -29,7 +29,6 @@ import (
 	"github.com/botlabs-gg/yagpdb/v2/notifications"
 	"github.com/botlabs-gg/yagpdb/v2/premium"
 	"github.com/botlabs-gg/yagpdb/v2/premium/patreonpremiumsource"
-	"github.com/botlabs-gg/yagpdb/v2/reddit"
 	"github.com/botlabs-gg/yagpdb/v2/reminders"
 	"github.com/botlabs-gg/yagpdb/v2/reputation"
 	"github.com/botlabs-gg/yagpdb/v2/rolecommands"
@@ -65,7 +64,6 @@ func main() {
 	serverstats.RegisterPlugin()
 	notifications.RegisterPlugin()
 	customcommands.RegisterPlugin()
-	reddit.RegisterPlugin()
 	moderation.RegisterPlugin()
 	reputation.RegisterPlugin()
 	streaming.RegisterPlugin()
