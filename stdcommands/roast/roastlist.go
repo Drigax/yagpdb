@@ -8,7 +8,7 @@ func randomRoast() string {
 	return roasts[rand.Intn(len(roasts))]
 }
 
-//Roasts copied from roast-bot
+// Roasts copied from roast-bot
 var roasts = []string{
 	"I'd like to roast you, but it looks like your genetics already did.",
 	"You look like someone set your face on fire and then put it out with a hammer.",
@@ -155,10 +155,11 @@ var roasts = []string{
 	"I'm not insulting you, I'm describing you",
 	"Why is it acceptable for you to be an idiot but not for me to point it out?",
 	"The last time I saw something like you… I flushed.",
-	"You're like a plunger. You like to bring up old shit.", 
+	"You're like a plunger. You like to bring up old shit.",
 	"I treasure the time I don't spend with you.",
 	"You're as useless as the \"ueue\" in \"queue\"",
 	"You're the reason the gene pool needs a lifeguard.",
 	"I don't know what your problem is, but I'm guessing it's hard to pronounce.",
 	"Talking to you is like stepping on a leaf in autumn and hearing no crunch- disappointment.",
+	"You a hoe.",
 }
