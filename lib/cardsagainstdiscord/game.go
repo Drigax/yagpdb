@@ -130,17 +130,17 @@ func GetCommonCahButtons() []discordgo.MessageComponent {
 		discordgo.ActionsRow{
 			Components: []discordgo.MessageComponent{
 				discordgo.Button{
-					Emoji:    discordgo.ComponentEmoji{Name: JoinEmoji},
+					Emoji:    &discordgo.ComponentEmoji{Name: JoinEmoji},
 					Style:    discordgo.SuccessButton,
 					CustomID: CahGameJoined,
 				},
 				discordgo.Button{
-					Emoji:    discordgo.ComponentEmoji{Name: LeaveEmoji},
+					Emoji:    &discordgo.ComponentEmoji{Name: LeaveEmoji},
 					Style:    discordgo.DangerButton,
 					CustomID: CahGameLeft,
 				},
 				discordgo.Button{
-					Emoji:    discordgo.ComponentEmoji{Name: PlayPauseEmoji},
+					Emoji:    &discordgo.ComponentEmoji{Name: PlayPauseEmoji},
 					Style:    discordgo.PrimaryButton,
 					CustomID: CahGamePlayPause,
 				},
@@ -648,7 +648,7 @@ func (g *Game) presentStartRound() {
 	}
 
 	fields := []*discordgo.MessageEmbedField{
-		&discordgo.MessageEmbedField{
+		{
 			Name:  "Prompt",
 			Value: g.CurrentPropmpt.PlaceHolder(),
 		},
@@ -737,11 +737,11 @@ func (g *Game) presentPickedResponseCards(edit bool) {
 		Description: desc,
 		Color:       5659830,
 		Fields: []*discordgo.MessageEmbedField{
-			&discordgo.MessageEmbedField{
+			{
 				Name:  "Prompt",
 				Value: g.CurrentPropmpt.PlaceHolder(),
 			},
-			&discordgo.MessageEmbedField{
+			{
 				Name: "Candidates",
 			},
 		},
@@ -823,17 +823,17 @@ func (g *Game) presentPickedResponseCards(edit bool) {
 		discordgo.ActionsRow{
 			Components: []discordgo.MessageComponent{
 				discordgo.Button{
-					Emoji:    discordgo.ComponentEmoji{Name: JoinEmoji},
+					Emoji:    &discordgo.ComponentEmoji{Name: JoinEmoji},
 					Style:    discordgo.SuccessButton,
 					CustomID: CahGameJoined,
 				},
 				discordgo.Button{
-					Emoji:    discordgo.ComponentEmoji{Name: LeaveEmoji},
+					Emoji:    &discordgo.ComponentEmoji{Name: LeaveEmoji},
 					Style:    discordgo.DangerButton,
 					CustomID: CahGameLeft,
 				},
 				discordgo.Button{
-					Emoji:    discordgo.ComponentEmoji{Name: PlayPauseEmoji},
+					Emoji:    &discordgo.ComponentEmoji{Name: PlayPauseEmoji},
 					Style:    discordgo.PrimaryButton,
 					CustomID: CahGamePlayPause,
 				},
@@ -1092,7 +1092,7 @@ func (g *Game) HandleMessageCreate(ic *discordgo.InteractionCreate) {
 	player.FilingBlankCard = false
 }
 
-const zeroWidthSpace = "​"
+const zeroWidthSpace = "\u200b"
 
 var (
 	mentionReplacer = strings.NewReplacer("@here", "@"+zeroWidthSpace+"here", "@everyone", "@"+zeroWidthSpace+"everyone")
@@ -1404,6 +1404,7 @@ func (p *Player) PresentBoard(session *discordgo.Session, currentPrompt *PromptC
 		}},
 	})
 	if err != nil {
+		logrus.WithError(err).Error("Failed sending CAH DM")
 		return
 	}
 

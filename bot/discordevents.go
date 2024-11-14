@@ -20,7 +20,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
-	"github.com/volatiletech/sqlboiler/boil"
+	"github.com/volatiletech/sqlboiler/v4/boil"
 )
 
 func addBotHandlers() {
@@ -404,7 +404,6 @@ func HandleMessageCreateUpdateFirst(evt *eventsystem.EventData) {
 		if !IsNormalUserMessage(edit.Message) {
 			return
 		}
-
 		edit.Member.User = edit.Author
 		edit.Member.GuildID = edit.GuildID
 	}

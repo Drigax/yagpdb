@@ -30,6 +30,7 @@ type StateTracker interface {
 	// GetMessages returns the messages of the channel, up to limit, you may pass in a pre-allocated buffer to save allocations.
 	// If cap(buf) is less than the needed then a new one will be created and returned
 	// if len(buf) is greater than needed, it will be sliced to the proper length
+	// If channelID is 0, it will attempt to return the most recent messages from the guild or nil
 	GetMessages(guildID int64, channelID int64, query *MessagesQuery) []*MessageState
 
 	// Calls f on all members, return true to continue or false to stop
@@ -259,10 +260,19 @@ type ChannelState struct {
 	UserLimit        int                       `json:"user_limit"`
 	ParentID         int64                     `json:"parent_id,string"`
 	RateLimitPerUser int                       `json:"rate_limit_per_user"`
+	Flags            discordgo.ChannelFlags    `json:"flags"`
 	OwnerID          int64                     `json:"owner_id,string"`
-	ThreadMetadata   *discordgo.ThreadMetadata `json:"thread_metadata"`
+	ThreadMetadata   *discordgo.ThreadMetadata `json:"thread_metadata,omitempty"`
 
 	PermissionOverwrites []discordgo.PermissionOverwrite `json:"permission_overwrites"`
+
+	AvailableTags []discordgo.ForumTag `json:"available_tags"`
+	AppliedTags   []int64              `json:"applied_tags"`
+
+	DefaultReactionEmoji          discordgo.ForumDefaultReaction `json:"default_reaction_emoji"`
+	DefaultThreadRateLimitPerUser int                            `json:"default_thread_rate_limit_per_user"`
+	DefaultSortOrder              *discordgo.ForumSortOrderType  `json:"default_sort_order"`
+	DefaultForumLayout            discordgo.ForumLayout          `json:"default_forum_layout"`
 }
 
 func (c *ChannelState) IsPrivate() bool {
@@ -297,6 +307,8 @@ type MemberFields struct {
 	Nick                       string
 	Avatar                     string
 	Pending                    bool
+	PremiumSince               *time.Time
+	Flags                      discordgo.MemberFlags
 	CommunicationDisabledUntil *time.Time
 }
 
@@ -323,7 +335,7 @@ type LightGame struct {
 	Details string `json:"details,omitempty"`
 	State   string `json:"state,omitempty"`
 
-	Type discordgo.GameType `json:"type"`
+	Type discordgo.ActivityType `json:"type"`
 }
 
 func MemberStateFromMember(member *discordgo.Member) *MemberState {
@@ -342,6 +354,8 @@ func MemberStateFromMember(member *discordgo.Member) *MemberState {
 			Nick:                       member.Nick,
 			Avatar:                     member.Avatar,
 			Pending:                    member.Pending,
+			PremiumSince:               member.PremiumSince,
+			Flags:                      member.Flags,
 			CommunicationDisabledUntil: member.CommunicationDisabledUntil,
 		},
 		Presence: nil,
@@ -363,6 +377,8 @@ func (ms *MemberState) DgoMember() *discordgo.Member {
 		Roles:                      ms.Member.Roles,
 		User:                       &ms.User,
 		Pending:                    ms.Member.Pending,
+		PremiumSince:               ms.Member.PremiumSince,
+		Flags:                      ms.Member.Flags,
 		CommunicationDisabledUntil: ms.Member.CommunicationDisabledUntil,
 	}
 
@@ -378,19 +394,31 @@ type MessageState struct {
 	GuildID   int64
 	ChannelID int64
 
-	Author  discordgo.User
-	Member  *discordgo.Member
-	Content string
-
-	Embeds       []discordgo.MessageEmbed
-	Mentions     []discordgo.User
-	MentionRoles []int64
-	Attachments  []discordgo.MessageAttachment
+	Author           discordgo.User
+	Member           *discordgo.Member
+	Content          string
+	MessageReference discordgo.MessageReference
+	MessageSnapshots []discordgo.MessageSnapshot
+	Embeds           []discordgo.MessageEmbed
+	Mentions         []discordgo.User
+	MentionRoles     []int64
+	Attachments      []discordgo.MessageAttachment
 
 	ParsedCreatedAt time.Time
 	ParsedEditedAt  time.Time
 
 	Deleted bool
+}
+
+func (m *MessageState) GetMessageContents() []string {
+	contents := []string{m.Content}
+
+	for _, s := range m.MessageSnapshots {
+		if s.Message != nil && len(s.Message.Content) > 0 {
+			contents = append(contents, s.Message.Content)
+		}
+	}
+	return contents
 }
 
 func (m *MessageState) ContentWithMentionsReplaced() string {

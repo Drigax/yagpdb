@@ -24,6 +24,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
+	"github.com/volatiletech/null/v8"
 	"goji.io/pat"
 )
 
@@ -552,6 +553,12 @@ func FormParserMW(inner http.Handler, dst interface{}) http.Handler {
 		// Decode the form into the destination struct
 		decoded := reflect.New(typ).Interface()
 		decoder := schema.NewDecoder()
+		decoder.RegisterConverter(null.Int64{}, func(value string) reflect.Value {
+			if v, err := strconv.ParseInt(value, 10, 64); err == nil {
+				return reflect.ValueOf(null.Int64From(v))
+			}
+			return reflect.Value{}
+		})
 		decoder.IgnoreUnknownKeys(true)
 		err = decoder.Decode(decoded, r.Form)
 
@@ -785,7 +792,7 @@ func SetGuildMemberMiddleware(inner http.Handler) http.Handler {
 
 			var tmpl TemplateData
 			ctx, tmpl = GetCreateTemplateData(ctx)
-			tmpl.AddAlerts(WarningAlert("In read only mode, you can not change any settings."))
+			tmpl.AddAlerts(WarningAlert("In read only mode, you cannot change any settings."))
 		}
 
 		r = r.WithContext(ctx)

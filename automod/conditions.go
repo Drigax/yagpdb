@@ -5,6 +5,7 @@ import (
 
 	"github.com/botlabs-gg/yagpdb/v2/bot"
 	"github.com/botlabs-gg/yagpdb/v2/common"
+	"github.com/botlabs-gg/yagpdb/v2/lib/discordgo"
 )
 
 type Condition interface {
@@ -581,6 +582,55 @@ func (mc *MessageEditedCondition) MergeDuplicates(data []interface{}) interface{
 	return data[0] // no point in having duplicates of this
 }
 
+var _ Condition = (*MessageAttachmentCondition)(nil)
+
+type MessageAttachmentCondition struct {
+	HasAttachments bool // If true we are only matching on messages with attachments
+}
+
+func (mc *MessageAttachmentCondition) Kind() RulePartType {
+	return RulePartCondition
+}
+
+func (mc *MessageAttachmentCondition) DataType() interface{} {
+	return nil
+}
+
+func (mc *MessageAttachmentCondition) Name() string {
+	if mc.HasAttachments {
+		return "Message with attachments"
+	}
+	return "Message without attachments"
+}
+
+func (mc *MessageAttachmentCondition) Description() string {
+	if mc.HasAttachments {
+		return "Only examine messages that have attachments"
+	}
+	return "Only examine messages that don't have attachments"
+}
+
+func (mc *MessageAttachmentCondition) UserSettings() []*SettingDef {
+	return []*SettingDef{}
+}
+
+func (mc *MessageAttachmentCondition) IsMet(data *TriggeredRuleData, settings interface{}) (bool, error) {
+	if data.Message == nil {
+		// pass the condition if no message is found
+		return true, nil
+	}
+
+	if contains := len(data.Message.Attachments) > 0; mc.HasAttachments {
+		return contains, nil
+	} else {
+		return !contains, nil
+	}
+}
+
+func (mc *MessageAttachmentCondition) MergeDuplicates(data []interface{}) interface{} {
+	return data[0]
+}
+
 /////////////////////////////////////////////////////////////////
 
 var _ Condition = (*ThreadCondition)(nil)
@@ -631,5 +681,58 @@ func (bc *ThreadCondition) IsMet(data *TriggeredRuleData, settings interface{}) 
 }
 
 func (bc *ThreadCondition) MergeDuplicates(data []interface{}) interface{} {
+	return data[0]
+}
+
+/////////////////////////////////////////////////////////////////
+
+var _ Condition = (*MessageForwardCondition)(nil)
+
+type MessageForwardCondition struct {
+	Forward bool
+}
+
+func (mf *MessageForwardCondition) Kind() RulePartType {
+	return RulePartCondition
+}
+
+func (mf *MessageForwardCondition) DataType() interface{} {
+	return nil
+}
+
+func (mf *MessageForwardCondition) Name() string {
+	if !mf.Forward {
+		return "Ignore message forwards"
+	}
+
+	return "Only apply on message forwards"
+}
+
+func (mf *MessageForwardCondition) Description() string {
+	if !mf.Forward {
+		return "Ignores messages with forwards"
+	}
+
+	return "Only match messages with forwards"
+}
+
+func (mf *MessageForwardCondition) UserSettings() []*SettingDef {
+	return []*SettingDef{}
+}
+
+func (mf *MessageForwardCondition) IsMet(data *TriggeredRuleData, settings interface{}) (bool, error) {
+	if data.Message == nil {
+		return false, nil
+	}
+	if reference := data.Message.Reference(); reference != nil && reference.Type == discordgo.MessageReferenceTypeForward {
+		if mf.Forward {
+			return true, nil
+		}
+		return false, nil
+	}
+	return !mf.Forward, nil
+}
+
+func (mf *MessageForwardCondition) MergeDuplicates(data []interface{}) interface{} {
 	return data[0]
 }

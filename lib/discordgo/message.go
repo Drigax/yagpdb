@@ -139,15 +139,17 @@ type Message struct {
 
 	// MessageReference contains reference data sent with crossposted or reply messages.
 	// This does not contain the reference *to* this message; this is for when *this* message references another.
-	// To generate a reference to this message, use (*Message).Reference().
 	MessageReference *MessageReference `json:"message_reference"`
 
-	// The message associated with the message_reference
+	// The message associated with the message_reference when message_reference type is DEFAULT
 	// NOTE: This field is only returned for messages with a type of 19 (REPLY) or 21 (THREAD_STARTER_MESSAGE).
 	// If the message is a reply but the referenced_message field is not present,
 	// the backend did not attempt to fetch the message that was being replied to, so its state is unknown.
 	// If the field exists but is null, the referenced message was deleted.
 	ReferencedMessage *Message `json:"referenced_message"`
+
+	// The messages associated with the message_reference when message_reference type is FORWARD
+	MessageSnapshots []*MessageSnapshot `json:"message_snapshots"`
 
 	// Is sent when the message is a response to an Interaction, without an existing message.
 	// This means responses to message component interactions do not include this property,
@@ -158,8 +160,22 @@ type Message struct {
 	// This is a combination of bit masks; the presence of a certain permission can
 	// be checked by performing a bitwise AND between this int and the flag.
 	Flags MessageFlags `json:"flags"`
-  
+
 	Activity *MessageActivity `json:"activity"`
+}
+
+type MessageSnapshot struct {
+	Message *Message `json:"message"`
+}
+
+func (m *Message) GetMessageContents() []string {
+	contents := []string{m.Content}
+	for _, s := range m.MessageSnapshots {
+		if s.Message != nil && len(s.Message.Content) > 0 {
+			contents = append(contents, s.Message.Content)
+		}
+	}
+	return contents
 }
 
 func (m *Message) GetGuildID() int64 {
@@ -174,6 +190,25 @@ func (m *Message) Link() string {
 	return fmt.Sprintf("https://discord.com/channels/%v/%v/%v", m.GuildID, m.ChannelID, m.ID)
 }
 
+// UnmarshalJSON is a helper function to unmarshal the Message.
+func (m *Message) UnmarshalJSON(data []byte) error {
+	type message Message
+	var v struct {
+		message
+		RawComponents []unmarshalableMessageComponent `json:"components"`
+	}
+	err := json.Unmarshal(data, &v)
+	if err != nil {
+		return err
+	}
+	*m = Message(v.message)
+	m.Components = make([]MessageComponent, len(v.RawComponents))
+	for i, v := range v.RawComponents {
+		m.Components[i] = v.MessageComponent
+	}
+	return err
+}
+
 // MessageFlags is the flags of "message" (see MessageFlags* consts)
 // https://discord.com/developers/docs/resources/channel#message-object-message-flags
 type MessageFlags int
@@ -186,8 +221,6 @@ const (
 	MessageFlagsIsCrossPosted MessageFlags = 1 << 1
 	// MessageFlagsSuppressEmbeds do not include any embeds when serializing this message.
 	MessageFlagsSuppressEmbeds MessageFlags = 1 << 2
-	// TODO: deprecated, remove when compatibility is not needed
-	MessageFlagsSupressEmbeds MessageFlags = 1 << 2
 	// MessageFlagsSourceMessageDeleted the source message for this crosspost has been deleted (via Channel Following).
 	MessageFlagsSourceMessageDeleted MessageFlags = 1 << 3
 	// MessageFlagsUrgent this message came from the urgent message system.
@@ -202,6 +235,8 @@ const (
 	MessageFlagsFailedToMentionSomeRolesInThread MessageFlags = 1 << 8
 	// MessageFlagsSuppressNotifications this message will not trigger push and desktop notifications
 	MessageFlagsSuppressNotifications MessageFlags = 1 << 12
+	// MessageFlagsIsVoiceMessage this message is a voice message.
+	MessageFlagsIsVoiceMessage MessageFlags = 1 << 13
 )
 
 // File stores info about files you e.g. send in messages.
@@ -224,6 +259,9 @@ type MessageSend struct {
 
 	// TODO: Remove this when compatibility is not required.
 	File *File `json:"-"`
+
+	// TODO: Remove this when compatibility is not required.
+	Embed *MessageEmbed `json:"-"`
 }
 
 // MessageEdit is used to chain parameters via ChannelMessageEditComplex, which
@@ -365,9 +403,19 @@ func (e *MessageEmbed) MarshalJSON() ([]byte, error) {
 
 // MessageReactions holds a reactions object for a message.
 type MessageReactions struct {
-	Count int    `json:"count"`
-	Me    bool   `json:"me"`
-	Emoji *Emoji `json:"emoji"`
+	Count        int                          `json:"count"`
+	CountDetails MessageReactionsCountDetails `json:"count_details"`
+	Me           bool                         `json:"me"`
+	MeBurst      bool                         `json:"me_burst"`
+	Emoji        *Emoji                       `json:"emoji"`
+	BurstColors  []string                     `json:"burst_colors"`
+}
+
+// MessageReactionsCountDetails holds normal and super reaction counts for the
+// associated emoji.
+type MessageReactionsCountDetails struct {
+	Burst  int `json:"burst"`
+	Normal int `json:"normal"`
 }
 
 // ContentWithMentionsReplaced will replace all @<id> mentions with the
@@ -461,19 +509,32 @@ type AllowedMentions struct {
 	RepliedUser bool `json:"replied_user"`
 }
 
+type MessageReferenceType int
+
+const (
+	MessageReferenceTypeDefault MessageReferenceType = iota
+	MessageReferenceTypeForward
+)
+
 // MessageReference contains reference data sent with crossposted messages
 type MessageReference struct {
-	MessageID int64 `json:"message_id,string"`
-	ChannelID int64 `json:"channel_id,string"`
-	GuildID   int64 `json:"guild_id,string,omitempty"`
+	Type      MessageReferenceType `json:"type"`
+	MessageID int64                `json:"message_id,string"`
+	ChannelID int64                `json:"channel_id,string"`
+	GuildID   int64                `json:"guild_id,string,omitempty"`
 }
 
 // Reference returns MessageReference of given message
 func (m *Message) Reference() *MessageReference {
+	if m.MessageReference == nil {
+		return nil
+	}
+
 	return &MessageReference{
-		GuildID:   m.GuildID,
-		ChannelID: m.ChannelID,
-		MessageID: m.ID,
+		Type:      m.MessageReference.Type,
+		GuildID:   m.MessageReference.GuildID,
+		ChannelID: m.MessageReference.ChannelID,
+		MessageID: m.MessageReference.MessageID,
 	}
 }
 

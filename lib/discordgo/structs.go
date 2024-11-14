@@ -22,7 +22,7 @@ import (
 
 	"github.com/botlabs-gg/yagpdb/v2/lib/gojay"
 	"github.com/pkg/errors"
-	"github.com/volatiletech/null"
+	"github.com/volatiletech/null/v8"
 )
 
 // A Session represents a connection to the Discord API.
@@ -155,6 +155,39 @@ type Invite struct {
 	ApproximateMemberCount   int `json:"approximate_member_count"`
 }
 
+// ForumSortOrderType represents sort order of a forum channel.
+type ForumSortOrderType int
+
+const (
+	// ForumSortOrderLatestActivity sorts posts by activity.
+	ForumSortOrderLatestActivity ForumSortOrderType = 0
+	// ForumSortOrderCreationDate sorts posts by creation time (from most recent to oldest).
+	ForumSortOrderCreationDate ForumSortOrderType = 1
+)
+
+// ForumLayout represents layout of a forum channel.
+type ForumLayout int
+
+const (
+	// ForumLayoutNotSet represents no default layout.
+	ForumLayoutNotSet ForumLayout = 0
+	// ForumLayoutListView displays forum posts as a list.
+	ForumLayoutListView ForumLayout = 1
+	// ForumLayoutGalleryView displays forum posts as a collection of tiles.
+	ForumLayoutGalleryView ForumLayout = 2
+)
+
+// the thread will stop showing in the channel list after auto_archive_duration minutes of inactivity, can be set to:
+// 60, 1440, 4320, 10080
+type AutoArchiveDuration int
+
+const (
+	AutoArchiveDurationOneHour   AutoArchiveDuration = 60
+	AutoArchiveDurationOneDay    AutoArchiveDuration = 1440
+	AutoArchiveDurationThreeDays AutoArchiveDuration = 4320
+	AutoArchiveDurationOneWeek   AutoArchiveDuration = 10080
+)
+
 // ChannelType is the type of a Channel
 type ChannelType int
 
@@ -175,7 +208,7 @@ const (
 )
 
 func (t ChannelType) IsThread() bool {
-	return t == ChannelTypeGuildPrivateThread || t == ChannelTypeGuildPublicThread
+	return t == ChannelTypeGuildPrivateThread || t == ChannelTypeGuildPublicThread || t == ChannelTypeGuildNewsThread
 }
 
 // A Channel holds all data related to an individual Discord channel.
@@ -237,6 +270,30 @@ type Channel struct {
 
 	// Thread specific fields
 	ThreadMetadata *ThreadMetadata `json:"thread_metadata"`
+
+	// ChannelFlags combined as a bitfield.
+	Flags ChannelFlags `json:"flags"`
+
+	// The set of tags that can be used in a forum channel.
+	AvailableTags []ForumTag `json:"available_tags"`
+
+	// The IDs of the set of tags that have been applied to a thread in a forum channel.
+	AppliedTags IDSlice `json:"applied_tags"`
+
+	// Emoji to use as the default reaction to a forum post.
+	DefaultReactionEmoji ForumDefaultReaction `json:"default_reaction_emoji"`
+
+	// The initial RateLimitPerUser to set on newly created threads in a channel.
+	// This field is copied to the thread at creation time and does not live update.
+	DefaultThreadRateLimitPerUser int `json:"default_thread_rate_limit_per_user"`
+
+	// The default sort order type used to order posts in forum channels.
+	// Defaults to null, which indicates a preferred sort order hasn't been set by a channel admin.
+	DefaultSortOrder *ForumSortOrderType `json:"default_sort_order"`
+
+	// The default forum layout view used to display posts in forum channels.
+	// Defaults to ForumLayoutNotSet, which indicates a layout view has not been set by a channel admin.
+	DefaultForumLayout ForumLayout `json:"default_forum_layout"`
 }
 
 func (c *Channel) GetChannelID() int64 {
@@ -252,7 +309,21 @@ func (c *Channel) Mention() string {
 	return fmt.Sprintf("<#%d>", c.ID)
 }
 
-// A ChannelEdit holds Channel Feild data for a channel edit.
+// ChannelFlags is the flags of "channel" (see ChannelFlags* consts)
+// https://discord.com/developers/docs/resources/channel#message-object-message-flags
+type ChannelFlags int
+
+// Valid ChannelFlags values
+const (
+	// ChannelFlagsPinned this thread is pinned to the top of its parent GUILD_FORUM or GUILD_MEDIA channel.
+	ChannelFlagsPinned ChannelFlags = 1 << 1
+	// ChannelFlagsRequireTag whether a tag is required to be specified when creating a thread in a GUILD_FORUM or a GUILD_MEDIA channel. Tags are specified in the applied_tags field.
+	ChannelFlagsRequireTag ChannelFlags = 1 << 4
+	// ChannelFlagsHideMediaDownloadOptions when set hides the embedded media download options. Available only for media channels.
+	ChannelFlagsHideMediaDownloadOptions ChannelFlags = 1 << 15
+)
+
+// A ChannelEdit holds Channel Field data for a channel edit.
 type ChannelEdit struct {
 	Name                 string                 `json:"name,omitempty"`
 	Topic                string                 `json:"topic,omitempty"`
@@ -262,7 +333,17 @@ type ChannelEdit struct {
 	UserLimit            int                    `json:"user_limit,omitempty"`
 	PermissionOverwrites []*PermissionOverwrite `json:"permission_overwrites,omitempty"`
 	ParentID             *null.String           `json:"parent_id,omitempty"`
+	Flags                *ChannelFlags          `json:"flags,omitempty"`
 	RateLimitPerUser     *int                   `json:"rate_limit_per_user,omitempty"`
+
+	// Threads only
+	Archived            *bool               `json:"archived,omitempty"`
+	AutoArchiveDuration AutoArchiveDuration `json:"auto_archive_duration,omitempty"`
+	Locked              *bool               `json:"locked,omitempty"`
+	Invitable           *bool               `json:"invitable,omitempty"`
+
+	// NOTE: forum threads only - these are IDs
+	AppliedTags IDSlice `json:"applied_tags,string,omitempty"`
 }
 
 type RoleCreate struct {
@@ -287,6 +368,50 @@ const (
 	PermissionOverwriteTypeRole   PermissionOverwriteType = 0
 	PermissionOverwriteTypeMember PermissionOverwriteType = 1
 )
+
+// ThreadStart stores all parameters you can use with MessageThreadStartComplex or ThreadStartComplex
+type ThreadStart struct {
+	Name                string              `json:"name"`
+	AutoArchiveDuration AutoArchiveDuration `json:"auto_archive_duration,omitempty"`
+	Type                ChannelType         `json:"type,omitempty"`
+	Invitable           bool                `json:"invitable"`
+	RateLimitPerUser    int                 `json:"rate_limit_per_user,omitempty"`
+
+	// NOTE: forum threads only - these are IDs
+	AppliedTags IDSlice `json:"applied_tags,string,omitempty"`
+}
+
+// ThreadsList represents a list of threads alongisde with thread member objects for the current user.
+type ThreadsList struct {
+	Threads []*Channel      `json:"threads"`
+	Members []*ThreadMember `json:"members"`
+	HasMore bool            `json:"has_more"`
+}
+
+// AddedThreadMember holds information about the user who was added to the thread
+type AddedThreadMember struct {
+	*ThreadMember
+	Member   *Member   `json:"member"`
+	Presence *Presence `json:"presence"`
+}
+
+// ForumDefaultReaction specifies emoji to use as the default reaction to a forum post.
+// NOTE: Exactly one of EmojiID and EmojiName must be set.
+type ForumDefaultReaction struct {
+	// The id of a guild's custom emoji.
+	EmojiID int64 `json:"emoji_id,string,omitempty"`
+	// The unicode character of the emoji.
+	EmojiName string `json:"emoji_name,omitempty"`
+}
+
+// ForumTag represents a tag that is able to be applied to a thread in a forum channel.
+type ForumTag struct {
+	ID        int64  `json:"id,string,omitempty"`
+	Name      string `json:"name"`
+	Moderated bool   `json:"moderated"`
+	EmojiID   int64  `json:"emoji_id,string,omitempty"`
+	EmojiName string `json:"emoji_name,omitempty"`
+}
 
 // Emoji struct holds data related to Emoji's
 type Emoji struct {
@@ -611,10 +736,10 @@ func (p *Presence) NKeys() int {
 	return 0
 }
 
-type Activities []*Game
+type Activities []*Activity
 
 func (a *Activities) UnmarshalJSONArray(dec *gojay.Decoder) error {
-	instance := Game{}
+	instance := Activity{}
 	err := dec.Object(&instance)
 	if err != nil {
 		return err
@@ -623,53 +748,55 @@ func (a *Activities) UnmarshalJSONArray(dec *gojay.Decoder) error {
 	return nil
 }
 
-// GameType is the type of "game" (see GameType* consts) in the Game struct
-type GameType int
+// ActivityType is the type of presence (see ActivityType* consts) in the Activity struct
+type ActivityType int
 
-// Valid GameType values
+// Valid ActivityType values
 const (
-	GameTypeGame GameType = iota
-	GameTypeStreaming
-	GameTypeListening
-	GameTypeWatching
+	ActivityTypePlaying ActivityType = iota
+	ActivityTypeStreaming
+	ActivityTypeListening
+	ActivityTypeWatching
+	ActivityTypeCustom
+	ActivityTypeCompeting
 )
 
-// A Game struct holds the name of the "playing .." game for a user
-type Game struct {
-	Name       string     `json:"name"`
-	Type       GameType   `json:"type"`
-	URL        string     `json:"url,omitempty"`
-	Details    string     `json:"details,omitempty"`
-	State      string     `json:"state,omitempty"`
-	TimeStamps TimeStamps `json:"timestamps,omitempty"`
-	Assets     Assets     `json:"assets,omitempty"`
-	Instance   int8       `json:"instance,omitempty"`
+// An Activity struct holds data about a user's activity.
+type Activity struct {
+	Name       string       `json:"name"`
+	Type       ActivityType `json:"type"`
+	URL        string       `json:"url,omitempty"`
+	Details    string       `json:"details,omitempty"`
+	State      string       `json:"state,omitempty"`
+	TimeStamps TimeStamps   `json:"timestamps,omitempty"`
+	Assets     Assets       `json:"assets,omitempty"`
+	Instance   int8         `json:"instance,omitempty"`
 }
 
 // implement gojay.UnmarshalerJSONObject
-func (g *Game) UnmarshalJSONObject(dec *gojay.Decoder, key string) error {
+func (a *Activity) UnmarshalJSONObject(dec *gojay.Decoder, key string) error {
 	switch key {
 	case "name":
-		return dec.String(&g.Name)
+		return dec.String(&a.Name)
 	case "type":
-		return dec.Int((*int)(&g.Type))
+		return dec.Int((*int)(&a.Type))
 	case "url":
-		return dec.String(&g.URL)
+		return dec.String(&a.URL)
 	case "details":
-		return dec.String(&g.Details)
+		return dec.String(&a.Details)
 	case "state":
-		return dec.String(&g.State)
+		return dec.String(&a.State)
 	case "timestamps":
-		return dec.Object(&g.TimeStamps)
+		return dec.Object(&a.TimeStamps)
 	case "assets":
 	case "instance":
-		return dec.Int8(&g.Instance)
+		return dec.Int8(&a.Instance)
 	}
 
 	return nil
 }
 
-func (g *Game) NKeys() int {
+func (a *Activity) NKeys() int {
 	return 0
 }
 
@@ -740,6 +867,22 @@ type MessageActivity struct {
 	PartyID string `json:"party_id"`
 }
 
+// MemberFlags represent flags of a guild member.
+// https://discord.com/developers/docs/resources/guild#guild-member-object-guild-member-flags
+type MemberFlags int
+
+// Block containing known MemberFlags values.
+const (
+	// MemberFlagDidRejoin indicates whether the Member has left and rejoined the guild.
+	MemberFlagDidRejoin MemberFlags = 1 << 0
+	// MemberFlagCompletedOnboarding indicates whether the Member has completed onboarding.
+	MemberFlagCompletedOnboarding MemberFlags = 1 << 1
+	// MemberFlagBypassesVerification indicates whether the Member is exempt from guild verification requirements.
+	MemberFlagBypassesVerification MemberFlags = 1 << 2
+	// MemberFlagStartedOnboarding indicates whether the Member has started onboarding.
+	MemberFlagStartedOnboarding MemberFlags = 1 << 3
+)
+
 // A Member stores user information for Guild members. A guild
 // member represents a certain user's presence in a guild.
 type Member struct {
@@ -766,6 +909,13 @@ type Member struct {
 
 	// A list of IDs of the roles which are possessed by the member.
 	Roles IDSlice `json:"roles,string"`
+
+	// When the user used their Nitro boost on the server
+	PremiumSince *time.Time `json:"premium_since"`
+
+	// The flags of this member. This is a combination of bit masks; the presence of a certain
+	// flag can be checked by performing a bitwise AND between this int and the flag.
+	Flags MemberFlags `json:"flags"`
 
 	// Whether the user has not yet passed the guild's Membership Screening requirements
 	Pending bool `json:"pending"`
@@ -1391,6 +1541,7 @@ type applicationCommandInteractionDataOptionTemporary struct {
 	Type    ApplicationCommandOptionType               `json:"type"`    // value of ApplicationCommandOptionType
 	Value   json.RawMessage                            `json:"value"`   // the value of the pair
 	Options []*ApplicationCommandInteractionDataOption `json:"options"` // present if this option is a group or subcommand
+	Focused bool                                       `json:"focused"` // present if this option is currently focused (in autocomplete)
 }
 
 func (a *ApplicationCommandInteractionDataOption) UnmarshalJSON(b []byte) error {
@@ -1404,6 +1555,7 @@ func (a *ApplicationCommandInteractionDataOption) UnmarshalJSON(b []byte) error 
 		Name:    temp.Name,
 		Type:    temp.Type,
 		Options: temp.Options,
+		Focused: temp.Focused,
 	}
 
 	switch temp.Type {
@@ -1442,18 +1594,20 @@ type InteractionApplicationCommandCallbackData struct {
 }
 
 type ThreadMetadata struct {
-	Archived            bool   `json:"archived"`              // whether the thread is archived
-	AutoArchiveDuration int    `json:"auto_archive_duration"` // duration in minutes to automatically archive the thread after recent activity, can be set to: 60, 1440, 4320, 10080
-	ArchiveTimestamp    string `json:"archive_timestamp"`     // timestamp when the thread's archive status was last changed, used for calculating recent activity
-	Locked              bool   `json:"locked"`                // whether the thread is locked; when a thread is locked, only users with MANAGE_THREADS can unarchive it
+	Archived            bool                `json:"archived"`              // whether the thread is archived
+	AutoArchiveDuration AutoArchiveDuration `json:"auto_archive_duration"` // duration in minutes to automatically archive the thread after recent activity, can be set to: 60, 1440, 4320, 10080
+	ArchiveTimestamp    string              `json:"archive_timestamp"`     // timestamp when the thread's archive status was last changed, used for calculating recent activity
+	Locked              bool                `json:"locked"`                // whether the thread is locked; when a thread is locked, only users with MANAGE_THREADS can unarchive it
+	Invitable           bool                `json:"invitable"`             // Whether non-moderators can add other non-moderators to a thread; only available on private threads
 }
 
 // A thread member is used to indicate whether a user has joined a thread or not.
 type ThreadMember struct {
-	ID            int64     `json:"id,string"`      // the id of the thread (NOT INCLUDED IN GUILDCREATE)
-	UserID        int64     `json:"user_id,string"` // the id of the user (NOT INCLUDED IN GUILDCREATE)
-	JoinTimestamp Timestamp `json:"join_timestamp"` // the time the current user last joined the thread
-	Flags         int       `json:"flags"`          // any user-thread settings, currently only used for notifications
+	ID            int64     `json:"id,string"`        // the id of the thread (NOT INCLUDED IN GUILDCREATE)
+	UserID        int64     `json:"user_id,string"`   // the id of the user (NOT INCLUDED IN GUILDCREATE)
+	JoinTimestamp Timestamp `json:"join_timestamp"`   // the time the current user last joined the thread
+	Flags         int       `json:"flags"`            // any user-thread settings, currently only used for notifications
+	Member        *Member   `json:"member,omitempty"` // Additional information about the user. NOTE: only present if the withMember parameter is set to true when calling Session.ThreadMembers or Session.ThreadMember.
 }
 
 // AutoModerationRule stores data for an auto moderation rule.
@@ -1548,4 +1702,183 @@ type AutoModerationActionMetadata struct {
 type AutoModerationAction struct {
 	Type     AutoModerationActionType      `json:"type"`
 	Metadata *AutoModerationActionMetadata `json:"metadata,omitempty"`
+}
+
+type SKUType int
+
+// Valid SKUType values
+const (
+	SKUTypeDurable           SKUType = 2
+	SKUTypeConsumable        SKUType = 3
+	SKUTypeSubscription      SKUType = 5
+	SKUTypeSubscriptionGroup SKUType = 6
+)
+
+type SKUFlags int
+
+const (
+	// SKUFlagAvailable indicates that the SKU is available for purchase.
+	SKUFlagAvailable SKUFlags = 1 << 2
+	// SKUFlagGuildSubscription indicates that the SKU is a guild subscription.
+	SKUFlagGuildSubscription SKUFlags = 1 << 7
+	// SKUFlagUserSubscription indicates that the SKU is a user subscription.
+	SKUFlagUserSubscription SKUFlags = 1 << 8
+)
+
+// SKU represents a purchasable item in the Discord store.
+type SKU struct {
+	// The ID of the SKU
+	ID int64 `json:"id,string"`
+
+	// The Type of the SKU
+	Type SKUType `json:"type"`
+
+	// The ID of the parent application
+	ApplicationID int64 `json:"application_id,string"`
+
+	// Customer-facing name of the SKU.
+	Name string `json:"name"`
+
+	// System-generated URL slug based on the SKU's name.
+	Slug string `json:"slug"`
+
+	// SKUFlags combined as a bitfield. The presence of a certain flag can be checked
+	// by performing a bitwise AND operation between this int and the flag.
+	Flags SKUFlags `json:"flags"`
+}
+
+// EntitlementType is the type of entitlement
+// https://discord.com/developers/docs/monetization/entitlements#entitlement-object-entitlement-types
+type EntitlementType int
+
+// Valid EntitlementType values
+const (
+	EntitlementTypePurchase                = 1
+	EntitlementTypePremiumSubscription     = 2
+	EntitlementTypeDeveloperGift           = 3
+	EntitlementTypeTestModePurchase        = 4
+	EntitlementTypeFreePurchase            = 5
+	EntitlementTypeUserGift                = 6
+	EntitlementTypePremiumPurchase         = 7
+	EntitlementTypeApplicationSubscription = 8
+)
+
+// Entitlement represents that a user or guild has access to a premium offering
+// in your application.
+type Entitlement struct {
+	// The ID of the entitlement
+	ID int64 `json:"id,string"`
+
+	// The ID of the SKU
+	SKUID int64 `json:"sku_id,string"`
+
+	// The ID of the parent application
+	ApplicationID int64 `json:"application_id,string"`
+
+	// The ID of the user that is granted access to the entitlement's sku
+	// Only available for user subscriptions.
+	UserID int64 `json:"user_id,string,omitempty"`
+
+	// The type of the entitlement
+	Type EntitlementType `json:"type"`
+
+	// The entitlement was deleted
+	Deleted bool `json:"deleted"`
+
+	// The start date at which the entitlement is valid.
+	// Not present when using test entitlements.
+	StartsAt *time.Time `json:"starts_at,omitempty"`
+
+	// The date at which the entitlement is no longer valid.
+	// Not present when using test entitlements.
+	EndsAt *time.Time `json:"ends_at,omitempty"`
+
+	// The ID of the guild that is granted access to the entitlement's sku.
+	// Only available for guild subscriptions.
+	GuildID int64 `json:"guild_id,string,omitempty"`
+
+	// Whether or not the entitlement has been consumed.
+	// Only available for consumable items.
+	Consumed bool `json:"consumed,omitempty"`
+}
+
+// EntitlementOwnerType is the type of entitlement (see EntitlementOwnerType* consts)
+type EntitlementOwnerType int
+
+// Valid EntitlementOwnerType values
+const (
+	EntitlementOwnerTypeGuildSubscription EntitlementOwnerType = 1
+	EntitlementOwnerTypeUserSubscription  EntitlementOwnerType = 2
+)
+
+// EntitlementTest is used to test granting an entitlement to a user or guild
+type EntitlementTest struct {
+	// The ID of the SKU to grant the entitlement to
+	SKUID int64 `json:"sku_id,string"`
+
+	// The ID of the guild or user to grant the entitlement to
+	OwnerID int64 `json:"owner_id,string"`
+
+	// OwnerType is the type of which the entitlement should be created
+	OwnerType EntitlementOwnerType `json:"owner_type"`
+}
+
+// EntitlementFilterOptions are the options for filtering Entitlements
+type EntitlementFilterOptions struct {
+	// Optional user ID to look up for.
+	UserID int64
+
+	// Optional array of SKU IDs to check for.
+	SkuIDs []int64
+
+	// Optional timestamp (snowflake) to retrieve Entitlements before this time.
+	BeforeID int64
+
+	// Optional timestamp (snowflake) to retrieve Entitlements after this time.
+	AfterID int64
+
+	// Optional maximum number of entitlements to return (1-100, default 100).
+	Limit int
+
+	// Optional guild ID to look up for.
+	GuildID int64
+
+	// Optional whether or not ended entitlements should be omitted.
+	ExcludeEnded bool
+}
+
+// Tells the status of a subscription
+type SubscriptionStatus int
+
+const (
+	//Subscription is Active and scheduled to renew
+	SubscriptionStatusActive SubscriptionStatus = 1
+	//Subscription is Active but scheduled to end and not be renewed
+	SubscriptionStatusEnding SubscriptionStatus = 2
+	//Subscription is Inactive and not being charged
+	SubscriptionStatusInactive SubscriptionStatus = 3
+)
+
+type Subscription struct {
+	ID     int64 `json:"id,string"`
+	UserID int64 `json:"user_id,string"`
+	//list of SKUs the user has subscribed to
+	SKUIDS []int64 `json:"sku_ids"`
+	//list of entitlements granted
+	EntitlementIDs []int64 `json:"entitlement_ids"`
+	//start of the current subscription period, this is updated when the subscription is renewed, not to be confused with the start of a subscription
+	CurrentPeriodStart time.Time `json:"current_period_start"`
+	//end of the current subscription period
+	CurrentPeriodEnd time.Time          `json:"current_period_end"`
+	Status           SubscriptionStatus `json:"status"`
+	// Only present if the subscription status is Ending or Inactive, represents the time when the subscription was cancelled
+	CancelledAt time.Time `json:"cancelled_at,omitempty"`
+}
+
+// SubscriptionFilterOptions are the options for filtering Subscriptions for list subscriptions API
+type SubscriptionFilterOptions struct {
+	BeforeID int64
+	AfterID  int64
+	Limit    int
+	UserId   int64
 }

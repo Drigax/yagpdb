@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"sort"
 	"time"
 
@@ -19,9 +20,9 @@ import (
 	"github.com/botlabs-gg/yagpdb/v2/lib/discordgo"
 	"github.com/botlabs-gg/yagpdb/v2/lib/dstate"
 	"github.com/mediocregopher/radix/v3"
-	"github.com/volatiletech/null"
-	"github.com/volatiletech/sqlboiler/boil"
-	"github.com/volatiletech/sqlboiler/queries/qm"
+	"github.com/volatiletech/null/v8"
+	"github.com/volatiletech/sqlboiler/v4/boil"
+	"github.com/volatiletech/sqlboiler/v4/queries/qm"
 )
 
 func (p *Plugin) BotInit() {
@@ -61,18 +62,13 @@ func (p *Plugin) checkMessage(evt *eventsystem.EventData, msg *discordgo.Message
 
 	ms := dstate.MemberStateFromMember(msg.Member)
 
-	stripped := ""
 	return !p.CheckTriggers(nil, evt.GS, ms, msg, cs, func(trig *ParsedPart) (activated bool, err error) {
-		if stripped == "" {
-			stripped = PrepareMessageForWordCheck(msg.Content)
-		}
-
 		cast, ok := trig.Part.(MessageTrigger)
 		if !ok {
 			return
 		}
 
-		return cast.CheckMessage(&TriggerContext{GS: evt.GS, MS: ms, Data: trig.ParsedSettings}, cs, msg, stripped)
+		return cast.CheckMessage(&TriggerContext{GS: evt.GS, MS: ms, Data: trig.ParsedSettings}, cs, msg)
 	})
 }
 
@@ -471,6 +467,13 @@ func (p *Plugin) RulesetRulesTriggeredCondsPassed(ruleset *ParsedRuleset, trigge
 
 		for _, effect := range rule.Effects {
 			go func(fx *ParsedPart, ctx *TriggeredRuleData) {
+				defer func() {
+					if r := recover(); r != nil {
+						stack := string(debug.Stack())
+						logger.Errorf("recovered from panic applying automod effect\n%v\n%v", r, stack)
+					}
+				}()
+
 				err := fx.Part.(Effect).Apply(ctx, fx.ParsedSettings)
 				if err != nil {
 					logger.WithError(err).WithField("guild", ruleset.RSModel.GuildID).WithField("part", fx.Part.Name()).Error("failed applying automod effect")

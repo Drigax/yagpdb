@@ -754,7 +754,22 @@ func (s *Session) GuildBanCreateWithReason(guildID, userID int64, reason string,
 // userID    : The ID of a User
 func (s *Session) GuildBanDelete(guildID, userID int64) (err error) {
 
-	_, err = s.RequestWithBucketID("DELETE", EndpointGuildBan(guildID, userID), nil, nil, EndpointGuildBan(guildID, 0))
+	return s.GuildBanDeleteWithReason(guildID, userID, "")
+}
+
+// GuildBanDeleteWithReason removes the given user from the guild bans,
+// including sending an audit log reason.
+// guildID    : The ID of a Guild
+// userID     : The ID of a User
+// reason     : The reason for removing the ban
+func (s *Session) GuildBanDeleteWithReason(guildID, userID int64, reason string) (err error) {
+
+	headers := make(map[string]string)
+	if reason != "" {
+		headers["X-Audit-Log-Reason"] = url.PathEscape(reason)
+	}
+
+	_, err = s.RequestWithBucketID("DELETE", EndpointGuildBan(guildID, userID), nil, headers, EndpointGuildBan(guildID, 0))
 	return
 }
 
@@ -832,6 +847,18 @@ func (s *Session) GuildMemberAdd(accessToken string, guildID, userID int64, nick
 	return err
 }
 
+func (s *Session) GuildMemberVoiceState(guildID, userID int64) (voiceState *VoiceState, err error) {
+	vs, err := s.RequestWithBucketID("GET", EndpointGuildMemberVoiceState(guildID, userID), nil, nil, EndpointGuildMemberVoiceState(guildID, 0))
+	if err != nil {
+		return nil, err
+	}
+	err = unmarshal(vs, &voiceState)
+	if err != nil {
+		return nil, err
+	}
+	return voiceState, nil
+}
+
 // GuildMemberDelete removes the given user from the given guild.
 // guildID   : The ID of a Guild.
 // userID    : The ID of a User
@@ -846,12 +873,12 @@ func (s *Session) GuildMemberDelete(guildID, userID int64) (err error) {
 // reason    : The reason for the kick
 func (s *Session) GuildMemberDeleteWithReason(guildID, userID int64, reason string) (err error) {
 
-	uri := EndpointGuildMember(guildID, userID)
+	headers := make(map[string]string)
 	if reason != "" {
-		uri += "?reason=" + url.QueryEscape(reason)
+		headers["X-Audit-Log-Reason"] = url.PathEscape(reason)
 	}
 
-	_, err = s.RequestWithBucketID("DELETE", uri, nil, nil, EndpointGuildMember(guildID, 0))
+	_, err = s.RequestWithBucketID("DELETE", EndpointGuildMember(guildID, userID), nil, headers, EndpointGuildMember(guildID, 0))
 	return
 }
 
@@ -2312,6 +2339,23 @@ func (s *Session) WebhookExecuteComplex(webhookID int64, token string, wait bool
 	// return
 }
 
+// WebhookMessage gets a webhook message.
+// webhookID : The ID of a webhook
+// token     : The auth token for the webhook
+// messageID : The ID of message to get
+func (s *Session) WebhookMessage(webhookID int64, token string, messageID int64) (message *Message, err error) {
+	uri := EndpointWebhookMessage(webhookID, token, strconv.FormatInt(messageID, 10))
+
+	body, err := s.RequestWithBucketID("GET", uri, nil, nil, EndpointWebhookToken(0, ""))
+	if err != nil {
+		return
+	}
+
+	err = json.Unmarshal(body, &message)
+
+	return
+}
+
 // MessageReactionAdd creates an emoji reaction to a message.
 // channelID : The channel ID.
 // messageID : The message ID.
@@ -2401,6 +2445,353 @@ func (s *Session) MessageReactions(channelID, messageID int64, emoji string, lim
 	}
 
 	err = unmarshal(body, &st)
+	return
+}
+
+// ------------------------------------------------------------------------------------------------
+// Functions specific to threads
+// ------------------------------------------------------------------------------------------------
+
+// MessageThreadStartComplex creates a new thread from an existing message.
+// channelID : Channel to create thread in
+// messageID : Message to start thread from
+// data : Parameters of the thread
+func (s *Session) MessageThreadStartComplex(channelID, messageID int64, data *ThreadStart) (ch *Channel, err error) {
+	endpoint := EndpointChannelMessageThread(channelID, messageID)
+	var body []byte
+	body, err = s.RequestWithBucketID("POST", endpoint, data, nil, endpoint)
+	if err != nil {
+		return
+	}
+
+	err = unmarshal(body, &ch)
+	return
+}
+
+// MessageThreadStart creates a new thread from an existing message.
+// channelID       : Channel to create thread in
+// messageID       : Message to start thread from
+// name            : Name of the thread
+// archiveDuration : Auto archive duration (in minutes)
+func (s *Session) MessageThreadStart(channelID, messageID int64, name string, archiveDuration AutoArchiveDuration) (ch *Channel, err error) {
+	return s.MessageThreadStartComplex(channelID, messageID, &ThreadStart{
+		Name:                name,
+		Invitable:           false,
+		AutoArchiveDuration: archiveDuration,
+	})
+}
+
+// ThreadStartComplex creates a new thread.
+// channelID : Channel to create thread in
+// data : Parameters of the thread
+func (s *Session) ThreadStartComplex(channelID int64, data *ThreadStart) (ch *Channel, err error) {
+	endpoint := EndpointChannelThreads(channelID)
+	var body []byte
+	body, err = s.RequestWithBucketID("POST", endpoint, data, nil, endpoint)
+	if err != nil {
+		return
+	}
+
+	err = unmarshal(body, &ch)
+	return
+}
+
+// ThreadStart creates a new thread.
+// channelID       : Channel to create thread in
+// name            : Name of the thread
+// archiveDuration : Auto archive duration (in minutes)
+func (s *Session) ThreadStart(channelID int64, name string, typ ChannelType, archiveDuration AutoArchiveDuration) (ch *Channel, err error) {
+	return s.ThreadStartComplex(channelID, &ThreadStart{
+		Name:                name,
+		Type:                typ,
+		Invitable:           false,
+		AutoArchiveDuration: archiveDuration,
+	})
+}
+
+// ForumThreadStartComplex starts a new thread (creates a post) in a forum channel.
+// channelID   : Channel to create thread in.
+// threadData  : Parameters of the thread.
+// messageData : Parameters of the starting message.
+func (s *Session) ForumThreadStartComplex(channelID int64, threadData *ThreadStart, messageData *MessageSend) (th *Channel, err error) {
+	endpoint := EndpointChannelThreads(channelID)
+
+	// TODO: Remove this when compatibility is not required.
+	if messageData.Embed != nil {
+		if messageData.Embeds == nil {
+			messageData.Embeds = []*MessageEmbed{messageData.Embed}
+		} else {
+			err = fmt.Errorf("cannot specify both Embed and Embeds")
+			return
+		}
+	}
+
+	for _, embed := range messageData.Embeds {
+		if embed.Type == "" {
+			embed.Type = "rich"
+		}
+	}
+
+	// TODO: Remove this when compatibility is not required.
+	files := messageData.Files
+	if messageData.File != nil {
+		if files == nil {
+			files = []*File{messageData.File}
+		} else {
+			err = fmt.Errorf("cannot specify both File and Files")
+			return
+		}
+	}
+
+	data := struct {
+		*ThreadStart
+		Message *MessageSend `json:"message"`
+	}{ThreadStart: threadData, Message: messageData}
+
+	var response []byte
+	if len(files) > 0 {
+		contentType, body, encodeErr := MultipartBodyWithJSON(data, files)
+		if encodeErr != nil {
+			return th, encodeErr
+		}
+
+		response, err = s.request("POST", endpoint, contentType, body, nil, endpoint)
+	} else {
+		response, err = s.RequestWithBucketID("POST", endpoint, data, nil, endpoint)
+	}
+	if err != nil {
+		return
+	}
+
+	err = unmarshal(response, &th)
+	return
+}
+
+// ForumThreadStart starts a new thread (post) in a forum channel.
+// channelID       : Channel to create thread in.
+// name            : Name of the thread.
+// archiveDuration : Auto archive duration.
+// content         : Content of the starting message.
+func (s *Session) ForumThreadStart(channelID int64, name string, archiveDuration AutoArchiveDuration, content string) (th *Channel, err error) {
+	return s.ForumThreadStartComplex(channelID, &ThreadStart{
+		Name:                name,
+		AutoArchiveDuration: archiveDuration,
+	}, &MessageSend{Content: content})
+}
+
+// ForumThreadStartEmbed starts a new thread (post) in a forum channel.
+// channelID       : Channel to create thread in.
+// name            : Name of the thread.
+// archiveDuration : Auto archive duration.
+// embed           : Embed data of the starting message.
+func (s *Session) ForumThreadStartEmbed(channelID int64, name string, archiveDuration AutoArchiveDuration, embed *MessageEmbed) (th *Channel, err error) {
+	return s.ForumThreadStartComplex(channelID, &ThreadStart{
+		Name:                name,
+		AutoArchiveDuration: archiveDuration,
+	}, &MessageSend{Embeds: []*MessageEmbed{embed}})
+}
+
+// ForumThreadStartEmbeds starts a new thread (post) in a forum channel.
+// channelID       : Channel to create thread in.
+// name            : Name of the thread.
+// archiveDuration : Auto archive duration.
+// embeds          : Embeds data of the starting message.
+func (s *Session) ForumThreadStartEmbeds(channelID int64, name string, archiveDuration AutoArchiveDuration, embeds []*MessageEmbed) (th *Channel, err error) {
+	return s.ForumThreadStartComplex(channelID, &ThreadStart{
+		Name:                name,
+		AutoArchiveDuration: archiveDuration,
+	}, &MessageSend{Embeds: embeds})
+}
+
+// ThreadJoin adds current user to a thread
+func (s *Session) ThreadJoin(id int64) error {
+	endpoint := EndpointThreadMember(id, "@me")
+	_, err := s.RequestWithBucketID("PUT", endpoint, nil, nil, endpoint)
+	return err
+}
+
+// ThreadLeave removes current user to a thread
+func (s *Session) ThreadLeave(id int64) error {
+	endpoint := EndpointThreadMember(id, "@me")
+	_, err := s.RequestWithBucketID("DELETE", endpoint, nil, nil, endpoint)
+	return err
+}
+
+// ThreadMemberAdd adds another member to a thread
+func (s *Session) ThreadMemberAdd(threadID int64, memberID string) error {
+	endpoint := EndpointThreadMember(threadID, memberID)
+	_, err := s.RequestWithBucketID("PUT", endpoint, nil, nil, endpoint)
+	return err
+}
+
+// ThreadMemberRemove removes another member from a thread
+func (s *Session) ThreadMemberRemove(threadID int64, memberID string) error {
+	endpoint := EndpointThreadMember(threadID, memberID)
+	_, err := s.RequestWithBucketID("DELETE", endpoint, nil, nil, endpoint)
+	return err
+}
+
+// ThreadMember returns thread member object for the specified member of a thread.
+// withMember : Whether to include a guild member object.
+func (s *Session) ThreadMember(threadID int64, memberID string, withMember bool) (member *ThreadMember, err error) {
+	uri := EndpointThreadMember(threadID, memberID)
+
+	queryParams := url.Values{}
+	if withMember {
+		queryParams.Set("with_member", "true")
+	}
+
+	if len(queryParams) > 0 {
+		uri += "?" + queryParams.Encode()
+	}
+
+	var body []byte
+	body, err = s.RequestWithBucketID("GET", uri, nil, nil, uri)
+
+	if err != nil {
+		return
+	}
+
+	err = unmarshal(body, &member)
+	return
+}
+
+// ThreadMembers returns all members of specified thread.
+// limit      : Max number of thread members to return (1-100). Defaults to 100.
+// afterID    : Get thread members after this user ID.
+// withMember : Whether to include a guild member object for each thread member.
+func (s *Session) ThreadMembers(threadID int64, limit int, withMember bool, afterID string) (members []*ThreadMember, err error) {
+	uri := EndpointThreadMembers(threadID)
+
+	queryParams := url.Values{}
+	if withMember {
+		queryParams.Set("with_member", "true")
+	}
+	if limit > 0 {
+		queryParams.Set("limit", strconv.Itoa(limit))
+	}
+	if afterID != "" {
+		queryParams.Set("after", afterID)
+	}
+
+	if len(queryParams) > 0 {
+		uri += "?" + queryParams.Encode()
+	}
+
+	var body []byte
+	body, err = s.RequestWithBucketID("GET", uri, nil, nil, uri)
+
+	if err != nil {
+		return
+	}
+
+	err = unmarshal(body, &members)
+	return
+}
+
+// ThreadsActive returns all active threads for specified channel.
+func (s *Session) ThreadsActive(channelID int64) (threads *ThreadsList, err error) {
+	var body []byte
+	body, err = s.RequestWithBucketID("GET", EndpointChannelActiveThreads(channelID), nil, nil, EndpointChannelActiveThreads(channelID))
+	if err != nil {
+		return
+	}
+
+	err = unmarshal(body, &threads)
+	return
+}
+
+// GuildThreadsActive returns all active threads for specified guild.
+func (s *Session) GuildThreadsActive(guildID int64) (threads *ThreadsList, err error) {
+	var body []byte
+	body, err = s.RequestWithBucketID("GET", EndpointGuildActiveThreads(guildID), nil, nil, EndpointGuildActiveThreads(guildID))
+	if err != nil {
+		return
+	}
+
+	err = unmarshal(body, &threads)
+	return
+}
+
+// ThreadsArchived returns archived threads for specified channel.
+// before : If specified returns only threads before the timestamp
+// limit  : Optional maximum amount of threads to return.
+func (s *Session) ThreadsArchived(channelID int64, before *time.Time, limit int) (threads *ThreadsList, err error) {
+	endpoint := EndpointChannelPublicArchivedThreads(channelID)
+	v := url.Values{}
+	if before != nil {
+		v.Set("before", before.Format(time.RFC3339))
+	}
+
+	if limit > 0 {
+		v.Set("limit", strconv.Itoa(limit))
+	}
+
+	if len(v) > 0 {
+		endpoint += "?" + v.Encode()
+	}
+
+	var body []byte
+	body, err = s.RequestWithBucketID("GET", endpoint, nil, nil, endpoint)
+	if err != nil {
+		return
+	}
+
+	err = unmarshal(body, &threads)
+	return
+}
+
+// ThreadsPrivateArchived returns archived private threads for specified channel.
+// before : If specified returns only threads before the timestamp
+// limit  : Optional maximum amount of threads to return.
+func (s *Session) ThreadsPrivateArchived(channelID int64, before *time.Time, limit int) (threads *ThreadsList, err error) {
+	endpoint := EndpointChannelPrivateArchivedThreads(channelID)
+	v := url.Values{}
+	if before != nil {
+		v.Set("before", before.Format(time.RFC3339))
+	}
+
+	if limit > 0 {
+		v.Set("limit", strconv.Itoa(limit))
+	}
+
+	if len(v) > 0 {
+		endpoint += "?" + v.Encode()
+	}
+	var body []byte
+	body, err = s.RequestWithBucketID("GET", endpoint, nil, nil, endpoint)
+	if err != nil {
+		return
+	}
+
+	err = unmarshal(body, &threads)
+	return
+}
+
+// ThreadsPrivateJoinedArchived returns archived joined private threads for specified channel.
+// before : If specified returns only threads before the timestamp
+// limit  : Optional maximum amount of threads to return.
+func (s *Session) ThreadsPrivateJoinedArchived(channelID int64, before *time.Time, limit int) (threads *ThreadsList, err error) {
+	endpoint := EndpointChannelJoinedPrivateArchivedThreads(channelID)
+	v := url.Values{}
+	if before != nil {
+		v.Set("before", before.Format(time.RFC3339))
+	}
+
+	if limit > 0 {
+		v.Set("limit", strconv.Itoa(limit))
+	}
+
+	if len(v) > 0 {
+		endpoint += "?" + v.Encode()
+	}
+	var body []byte
+	body, err = s.RequestWithBucketID("GET", endpoint, nil, nil, endpoint)
+	if err != nil {
+		return
+	}
+
+	err = unmarshal(body, &threads)
 	return
 }
 
@@ -2692,6 +3083,16 @@ func (s *Session) BatchEditGuildApplicationCommandsPermissions(applicationID int
 // CreateInteractionResponse Create a response to an Interaction from the gateway. Takes an Interaction response.
 // POST /interactions/{interaction.id}/{interaction.token}/callback
 func (s *Session) CreateInteractionResponse(interactionID int64, token string, data *InteractionResponse) (err error) {
+	if data.Data != nil && len(data.Data.Files) > 0 {
+		contentType, body, err := MultipartBodyWithJSON(data, data.Data.Files)
+		if err != nil {
+			return err
+		}
+
+		_, err = s.request("POST", EndpointInteractionCallback(interactionID, token), contentType, body, nil, EndpointInteractionCallback(0, ""))
+		return err
+	}
+
 	_, err = s.RequestWithBucketID("POST", EndpointInteractionCallback(interactionID, token), data, nil, EndpointInteractionCallback(0, ""))
 	return
 }
@@ -2750,5 +3151,121 @@ func (s *Session) EditFollowupMessage(applicationID int64, token string, message
 // DELETE /webhooks/{application.id}/{interaction.token}/messages/{message.id}
 func (s *Session) DeleteFollowupMessage(applicationID int64, token string, messageID int64) (err error) {
 	_, err = s.RequestWithBucketID("DELETE", EndpointInteractionFollowupMessage(applicationID, token, messageID), nil, nil, EndpointInteractionFollowupMessage(0, "", 0))
+	return
+}
+
+// ----------------------------------------------------------------------
+// Monetization Functions
+// ----------------------------------------------------------------------
+
+// SKUs returns all SKUs for a given application.
+// appID : The ID of the application.
+func (s *Session) SKUs(applicationID int64) (skus []*SKU, err error) {
+	body, err := s.RequestWithBucketID("GET", EndpointSKUs(applicationID), nil, nil, EndpointSKUs(applicationID))
+	if err != nil {
+		return
+	}
+
+	err = unmarshal(body, &skus)
+	return
+}
+
+// Entitlements returns all antitlements for a given app, active and expired.
+// appID			: The ID of the application.
+// filterOptions	: Optional filter options; otherwise set it to nil.
+func (s *Session) Entitlements(applicationID int64, filterOptions *EntitlementFilterOptions) (entitlements []*Entitlement, err error) {
+	endpoint := EndpointEntitlements(applicationID)
+	queryParams := url.Values{}
+	if filterOptions != nil {
+		if filterOptions.UserID != 0 {
+			queryParams.Set("user_id", StrID(filterOptions.UserID))
+		}
+		if len(filterOptions.SkuIDs) > 0 {
+			stringSkuIDs := make([]string, 0, len(filterOptions.SkuIDs))
+			for _, skuID := range filterOptions.SkuIDs {
+				stringSkuIDs = append(stringSkuIDs, StrID(skuID))
+			}
+			queryParams.Set("sku_ids", strings.Join(stringSkuIDs, ","))
+		}
+		if filterOptions.BeforeID != 0 {
+			queryParams.Set("before", StrID(filterOptions.BeforeID))
+		}
+		if filterOptions.AfterID != 0 {
+			queryParams.Set("after", StrID(filterOptions.AfterID))
+		}
+		if filterOptions.Limit > 0 {
+			queryParams.Set("limit", strconv.Itoa(filterOptions.Limit))
+		}
+		if filterOptions.GuildID != 0 {
+			queryParams.Set("guild_id", StrID(filterOptions.GuildID))
+		}
+		if filterOptions.ExcludeEnded {
+			queryParams.Set("exclude_ended", "true")
+		}
+	}
+	uri := endpoint
+	uri = fmt.Sprintf("%s?%s", uri, queryParams.Encode())
+	body, err := s.RequestWithBucketID("GET", uri, nil, nil, endpoint)
+	if err != nil {
+		return
+	}
+
+	err = unmarshal(body, &entitlements)
+	return
+}
+
+// EntitlementConsume marks a given One-Time Purchase for the user as consumed.
+func (s *Session) EntitlementConsume(appID, entitlementID int64) (err error) {
+	_, err = s.RequestWithBucketID("POST", EndpointEntitlementConsume(appID, entitlementID), nil, nil, EndpointEntitlementConsume(appID, 0))
+	return
+}
+
+// EntitlementTestCreate creates a test entitlement to a given SKU for a given guild or user.
+// Discord will act as though that user or guild has entitlement to your premium offering.
+func (s *Session) EntitlementTestCreate(appID int64, data *EntitlementTest) (err error) {
+	endpoint := EndpointEntitlements(appID)
+	_, err = s.RequestWithBucketID("POST", endpoint, data, nil, endpoint)
+	return
+}
+
+// EntitlementTestDelete deletes a currently-active test entitlement. Discord will act as though
+// that user or guild no longer has entitlement to your premium offering.
+func (s *Session) EntitlementTestDelete(appID, entitlementID int64) (err error) {
+	_, err = s.RequestWithBucketID("DELETE", EndpointEntitlement(appID, entitlementID), nil, nil, EndpointEntitlement(appID, 0))
+	return
+}
+
+func (s *Session) GetSKUSubscriptions(skuID int64, filterOptions *SubscriptionFilterOptions) (subscriptions []*Subscription, err error) {
+	endpoint := EndpointSKUSubscriptions(skuID)
+	queryParams := url.Values{}
+	if filterOptions.UserId != 0 {
+		queryParams.Set("user_id", StrID(filterOptions.UserId))
+	}
+	if filterOptions.AfterID != 0 {
+		queryParams.Set("after", StrID(filterOptions.AfterID))
+	}
+	if filterOptions.BeforeID != 0 {
+		queryParams.Set("before", StrID(filterOptions.BeforeID))
+	}
+	if filterOptions.Limit != 0 {
+		queryParams.Set("limit", strconv.Itoa(filterOptions.Limit))
+	}
+	uri := endpoint
+	uri = fmt.Sprintf("%s?%s", uri, queryParams.Encode())
+	body, err := s.RequestWithBucketID("GET", uri, nil, nil, endpoint)
+	if err != nil {
+		return
+	}
+	err = unmarshal(body, &subscriptions)
+	return
+}
+
+func (s *Session) GetSKUSubscription(skuID, subscriptionID int64) (subscription *Subscription, err error) {
+	endpoint := EndpointSKUSubscription(skuID, subscriptionID)
+	body, err := s.RequestWithBucketID("GET", endpoint, nil, nil, endpoint)
+	if err != nil {
+		return
+	}
+	err = unmarshal(body, &subscription)
 	return
 }

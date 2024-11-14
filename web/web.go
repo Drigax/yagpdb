@@ -17,7 +17,6 @@ import (
 	"github.com/botlabs-gg/yagpdb/v2/common/patreon"
 	yagtmpl "github.com/botlabs-gg/yagpdb/v2/common/templates"
 	"github.com/botlabs-gg/yagpdb/v2/frontend"
-	"github.com/botlabs-gg/yagpdb/v2/lib/dcmd"
 	"github.com/botlabs-gg/yagpdb/v2/lib/discordgo"
 	"github.com/botlabs-gg/yagpdb/v2/web/discordblog"
 	"github.com/natefinch/lumberjack"
@@ -134,8 +133,8 @@ func BaseURL() string {
 	return "http://" + common.ConfHost.GetString()
 }
 
-func ManageServerURL(guild *dcmd.GuildContextData) string {
-	return fmt.Sprintf("%s/manage/%d", BaseURL(), guild.GS.ID)
+func ManageServerURL(guildID int64) string {
+	return fmt.Sprintf("%s/manage/%d", BaseURL(), guildID)
 }
 
 func Run() {
@@ -292,7 +291,8 @@ func setupRoutes() *goji.Mux {
 	RootMux.Handle(pat.Get("/api/:server"), ServerPublicAPIMux)
 	RootMux.Handle(pat.Get("/api/:server/*"), ServerPublicAPIMux)
 
-	ServerPublicAPIMux.Handle(pat.Get("/channelperms/:channel"), RequireActiveServer(APIHandler(HandleChanenlPermissions)))
+	ServerPublicAPIMux.Handle(pat.Get("/channelperms/:channel"), RequireActiveServer(APIHandler(HandleChannelPermissions)))
+	ServerPublicAPIMux.Handle(pat.Get("/status.json"), RequireActiveServer(APIHandler(HandleGuildStatusJSON)))
 
 	// Server selection has its own handler
 	RootMux.Handle(pat.Get("/manage"), SelectServerHomePageHandler)
@@ -345,7 +345,7 @@ func setupRoutes() *goji.Mux {
 	}
 
 	AddSidebarItem(SidebarCategoryCore, &SidebarItem{
-		Name: "Core",
+		Name: "Control panel access",
 		URL:  "core",
 		Icon: "fas fa-cog",
 	})
@@ -431,12 +431,13 @@ func loadCoreHTMLTemplate(path string) {
 }
 
 const (
-	SidebarCategoryTopLevel   = "Top"
-	SidebarCategoryFeeds      = "Feeds"
-	SidebarCategoryTools      = "Tools"
-	SidebarCategoryFun        = "Fun"
-	SidebarCategoryCore       = "Core"
-	SidebarCategoryModeration = "Moderation"
+	SidebarCategoryTopLevel       = "Top"
+	SidebarCategoryFeeds          = "Feeds"
+	SidebarCategoryTools          = "Tools"
+	SidebarCategoryFun            = "Fun"
+	SidebarCategoryCore           = "Core"
+	SidebarCategoryCustomCommands = "CustomCommands"
+	SidebarCategoryModeration     = "Moderation"
 )
 
 type SidebarItem struct {

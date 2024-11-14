@@ -73,21 +73,34 @@ func MessageStateFromDgo(m *discordgo.Message) *MessageState {
 		parsedE, _ = m.EditedTimestamp.Parse()
 	}
 
-	return &MessageState{
-		ID:        m.ID,
-		GuildID:   m.GuildID,
-		ChannelID: m.ChannelID,
-		Author:    author,
-		Member:    m.Member,
-		Content:   m.Content,
-
-		Embeds:          embeds,
-		Mentions:        mentions,
-		Attachments:     attachments,
-		MentionRoles:    m.MentionRoles,
-		ParsedCreatedAt: parsedC,
-		ParsedEditedAt:  parsedE,
+	ms := &MessageState{
+		ID:               m.ID,
+		GuildID:          m.GuildID,
+		ChannelID:        m.ChannelID,
+		Author:           author,
+		Member:           m.Member,
+		Content:          m.Content,
+		MessageSnapshots: convertMessageSnapshots(m.MessageSnapshots),
+		Embeds:           embeds,
+		Mentions:         mentions,
+		Attachments:      attachments,
+		MentionRoles:     m.MentionRoles,
+		ParsedCreatedAt:  parsedC,
+		ParsedEditedAt:   parsedE,
 	}
+	if m.Reference() != nil {
+		ms.MessageReference = *m.Reference()
+	}
+
+	return ms
+}
+
+func convertMessageSnapshots(snapshots []*discordgo.MessageSnapshot) []discordgo.MessageSnapshot {
+	converted := make([]discordgo.MessageSnapshot, len(snapshots))
+	for i, v := range snapshots {
+		converted[i] = *v
+	}
+	return converted
 }
 
 func MemberStateFromPresence(p *discordgo.PresenceUpdate) *MemberState {
@@ -98,7 +111,7 @@ func MemberStateFromPresence(p *discordgo.PresenceUpdate) *MemberState {
 
 	// get the main activity
 	// it either gets the first one, or the one with typ 1 (streaming)
-	var mainActivity *discordgo.Game
+	var mainActivity *discordgo.Activity
 	for i, v := range p.Activities {
 		if i == 0 || v.Type == 1 {
 			mainActivity = v
@@ -151,17 +164,25 @@ func ChannelStateFromDgo(c *discordgo.Channel) ChannelState {
 	}
 
 	return ChannelState{
-		ID:                   c.ID,
-		GuildID:              c.GuildID,
-		PermissionOverwrites: pos,
-		ParentID:             c.ParentID,
-		Name:                 c.Name,
-		Topic:                c.Topic,
-		Type:                 c.Type,
-		NSFW:                 c.NSFW,
-		Position:             c.Position,
-		Bitrate:              c.Bitrate,
-		OwnerID:              c.OwnerID,
+		ID:                            c.ID,
+		GuildID:                       c.GuildID,
+		PermissionOverwrites:          pos,
+		ParentID:                      c.ParentID,
+		Name:                          c.Name,
+		Topic:                         c.Topic,
+		Type:                          c.Type,
+		NSFW:                          c.NSFW,
+		Position:                      c.Position,
+		Bitrate:                       c.Bitrate,
+		Flags:                         c.Flags,
+		OwnerID:                       c.OwnerID,
+		AvailableTags:                 c.AvailableTags,
+		AppliedTags:                   c.AppliedTags,
+		DefaultReactionEmoji:          c.DefaultReactionEmoji,
+		DefaultThreadRateLimitPerUser: c.DefaultThreadRateLimitPerUser,
+		DefaultSortOrder:              c.DefaultSortOrder,
+		DefaultForumLayout:            c.DefaultForumLayout,
+		ThreadMetadata:                c.ThreadMetadata,
 	}
 }
 

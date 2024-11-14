@@ -19,9 +19,9 @@ import (
 	"github.com/botlabs-gg/yagpdb/v2/lib/dstate"
 	"github.com/botlabs-gg/yagpdb/v2/premium"
 	"github.com/vmihailenco/msgpack"
-	"github.com/volatiletech/null"
-	"github.com/volatiletech/sqlboiler/boil"
-	"github.com/volatiletech/sqlboiler/queries/qm"
+	"github.com/volatiletech/null/v8"
+	"github.com/volatiletech/sqlboiler/v4/boil"
+	"github.com/volatiletech/sqlboiler/v4/queries/qm"
 )
 
 func init() {
@@ -176,13 +176,21 @@ func (pa *ParsedArgs) IsSet(index int) interface{} {
 // or schedules a custom command to be run in the future sometime with the provided data placed in .ExecData
 func tmplRunCC(ctx *templates.Context) interface{} {
 	return func(ccID int, channel interface{}, delaySeconds interface{}, data interface{}) (string, error) {
+		if ctx.ExecutedFrom == templates.ExecutedFromNestedCommandTemplate {
+			return "", nil
+		}
+
 		if ctx.IncreaseCheckCallCounterPremium("runcc", 1, 10) {
 			return "", templates.ErrTooManyCalls
 		}
 
-		cmd, err := models.FindCustomCommandG(context.Background(), ctx.GS.ID, int64(ccID))
+		cmd, err := models.CustomCommands(qm.Where("guild_id = ? AND local_id = ?", ctx.GS.ID, ccID), qm.Load("Group")).OneG(context.Background())
 		if err != nil {
 			return "", errors.New("Couldn't find custom command")
+		}
+
+		if cmd.R.Group != nil && cmd.R.Group.Disabled {
+			return "", errors.New("custom command group is disabled")
 		}
 
 		if cmd.Disabled {
@@ -219,6 +227,10 @@ func tmplRunCC(ctx *templates.Context) interface{} {
 			if ctx.Msg != nil {
 				newCtx.Msg = ctx.Msg
 				newCtx.Data["Message"] = ctx.Msg
+			}
+			if ctx.CurrentFrame.Interaction != nil {
+				newCtx.CurrentFrame.Interaction = ctx.CurrentFrame.Interaction
+				newCtx.Data["Interaction"] = ctx.CurrentFrame.Interaction
 			}
 			newCtx.Data["ExecData"] = data
 			newCtx.Data["StackDepth"] = currentStackDepth + 1
@@ -271,9 +283,13 @@ func tmplScheduleUniqueCC(ctx *templates.Context) interface{} {
 			return "", templates.ErrTooManyCalls
 		}
 
-		cmd, err := models.FindCustomCommandG(context.Background(), ctx.GS.ID, int64(ccID))
+		cmd, err := models.CustomCommands(qm.Where("guild_id = ? AND local_id = ?", ctx.GS.ID, ccID), qm.Load("Group")).OneG(context.Background())
 		if err != nil {
 			return "", errors.New("Couldn't find custom command")
+		}
+
+		if cmd.R.Group != nil && cmd.R.Group.Disabled {
+			return "", errors.New("custom command group is disabled")
 		}
 
 		if cmd.Disabled {
@@ -841,6 +857,8 @@ type LightDBEntry struct {
 	Key   string
 	Value interface{}
 
+	ValueSize int
+
 	User discordgo.User
 
 	ExpiresAt time.Time
@@ -869,6 +887,8 @@ func ToLightDBEntry(m *models.TemplatesUserDatabase) (*LightDBEntry, error) {
 
 		Key:   m.Key,
 		Value: decodedValue,
+
+		ValueSize: len(m.ValueRaw),
 
 		ExpiresAt: m.ExpiresAt.Time,
 	}

@@ -14,9 +14,9 @@ import (
 	"github.com/botlabs-gg/yagpdb/v2/lib/discordgo"
 	"github.com/botlabs-gg/yagpdb/v2/lib/dstate"
 	"github.com/botlabs-gg/yagpdb/v2/moderation"
-	"github.com/volatiletech/null"
-	"github.com/volatiletech/sqlboiler/boil"
-	"github.com/volatiletech/sqlboiler/queries/qm"
+	"github.com/volatiletech/null/v8"
+	"github.com/volatiletech/sqlboiler/v4/boil"
+	"github.com/volatiletech/sqlboiler/v4/queries/qm"
 )
 
 type Effect interface {
@@ -269,7 +269,7 @@ func (kick *KickUserEffect) Apply(ctxData *TriggeredRuleData, settings interface
 		reason += ctxData.ConstructReason(true)
 	}
 
-	err := moderation.KickUser(nil, ctxData.GS.ID, ctxData.CS, ctxData.Message, common.BotUser, reason, &ctxData.MS.User, -1)
+	err := moderation.KickUser(nil, ctxData.GS.ID, ctxData.CS, ctxData.Message, common.BotUser, reason, &ctxData.MS.User, -1, false)
 	return err
 }
 
@@ -340,7 +340,7 @@ func (ban *BanUserEffect) Apply(ctxData *TriggeredRuleData, settings interface{}
 	}
 
 	duration := time.Duration(settingsCast.Duration) * time.Minute
-	err := moderation.BanUserWithDuration(nil, ctxData.GS.ID, ctxData.CS, ctxData.Message, common.BotUser, reason, &ctxData.MS.User, duration, settingsCast.MessageDeleteDays)
+	err := moderation.BanUserWithDuration(nil, ctxData.GS.ID, ctxData.CS, ctxData.Message, common.BotUser, reason, &ctxData.MS.User, duration, settingsCast.MessageDeleteDays, false)
 	return err
 }
 
@@ -402,7 +402,7 @@ func (mute *MuteUserEffect) Apply(ctxData *TriggeredRuleData, settings interface
 		reason += ctxData.ConstructReason(true)
 	}
 
-	err := moderation.MuteUnmuteUser(nil, true, ctxData.GS.ID, ctxData.CS, ctxData.Message, common.BotUser, reason, ctxData.MS, settingsCast.Duration)
+	err := moderation.MuteUnmuteUser(nil, true, ctxData.GS.ID, ctxData.CS, ctxData.Message, common.BotUser, reason, ctxData.MS, settingsCast.Duration, false)
 	return err
 }
 
@@ -472,7 +472,7 @@ func (timeout *TimeoutUserEffect) Apply(ctxData *TriggeredRuleData, settings int
 	}
 
 	duration := time.Duration(settingsCast.Duration) * time.Minute
-	err := moderation.TimeoutUser(nil, ctxData.GS.ID, ctxData.CS, ctxData.Message, common.BotUser, reason, &ctxData.MS.User, duration)
+	err := moderation.TimeoutUser(nil, ctxData.GS.ID, ctxData.CS, ctxData.Message, common.BotUser, reason, &ctxData.MS.User, duration, false)
 	return err
 }
 
@@ -526,7 +526,7 @@ func (warn *WarnUserEffect) Apply(ctxData *TriggeredRuleData, settings interface
 		reason += ctxData.ConstructReason(true)
 	}
 
-	err := moderation.WarnUser(nil, ctxData.GS.ID, ctxData.CS, ctxData.Message, common.BotUser, &ctxData.MS.User, reason)
+	err := moderation.WarnUser(nil, ctxData.GS.ID, ctxData.CS, ctxData.Message, common.BotUser, &ctxData.MS.User, reason, false)
 	return err
 }
 
@@ -865,7 +865,7 @@ func (send *SendChannelMessageEffect) Apply(ctxData *TriggeredRuleData, settings
 		return err
 	}
 	if settingsCast.Duration > 0 && message != nil {
-		templates.MaybeScheduledDeleteMessage(ctxData.GS.ID, logChannel, message.ID, settingsCast.Duration)
+		templates.MaybeScheduledDeleteMessage(ctxData.GS.ID, logChannel, message.ID, settingsCast.Duration, "")
 	}
 	return nil
 }

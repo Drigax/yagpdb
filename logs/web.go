@@ -7,8 +7,14 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/volatiletech/null/v8"
+	"github.com/volatiletech/sqlboiler/v4/boil"
+	"goji.io"
+	"goji.io/pat"
 
 	"github.com/botlabs-gg/yagpdb/v2/bot/botrest"
 	"github.com/botlabs-gg/yagpdb/v2/common"
@@ -17,10 +23,6 @@ import (
 	"github.com/botlabs-gg/yagpdb/v2/lib/discordgo"
 	"github.com/botlabs-gg/yagpdb/v2/logs/models"
 	"github.com/botlabs-gg/yagpdb/v2/web"
-	"github.com/volatiletech/null/v8"
-	"github.com/volatiletech/sqlboiler/v4/boil"
-	"goji.io"
-	"goji.io/pat"
 )
 
 //go:embed assets/logs_control_panel.html
@@ -110,6 +112,9 @@ func HandleLogsCP(w http.ResponseWriter, r *http.Request) (web.TemplateData, err
 			tmpl.AddAlerts(web.ErrorAlert("Failed parsing before id"))
 		}
 		beforeID = int(beforeId64)
+		if beforeID < 1 {
+			beforeID = 1
+		}
 	} else {
 		tmpl["FirstPage"] = true
 	}
@@ -122,6 +127,9 @@ func HandleLogsCP(w http.ResponseWriter, r *http.Request) (web.TemplateData, err
 			tmpl.AddAlerts(web.ErrorAlert("Failed parsing before id"))
 		}
 		afterID = int(id64)
+		if afterID < 1 {
+			afterID = 1
+		}
 		tmpl["FirstPage"] = false
 	}
 
@@ -230,7 +238,11 @@ func CheckCanAccessLogs(w http.ResponseWriter, r *http.Request, config *models.G
 
 	member := web.ContextMember(ctx)
 	if member == nil {
-		tmpl.AddAlerts(web.ErrorAlert("This server has restricted log access to members only."))
+		goTo := url.QueryEscape(r.RequestURI)
+		alertLink := fmt.Sprintf(`<a href="%s/login?goto=%s>here</a>`, web.BaseURL(), goTo)
+		alertMsg := fmt.Sprintf("This server has restricted log access to members only.\nIf you are a member, click %s to login.", alertLink)
+
+		tmpl.AddAlerts(web.ErrorAlert(alertMsg))
 		return false
 	}
 
@@ -238,7 +250,7 @@ func CheckCanAccessLogs(w http.ResponseWriter, r *http.Request, config *models.G
 	guild := web.ContextGuild(ctx)
 
 	// if access mode is everyone or the user is the owner or they have administrator/manage server perms, then they can access the logs
-	if (config.AccessMode == 1) || (member.User.ID == guild.OwnerID) || (memberPermissions&discordgo.PermissionAdministrator == discordgo.PermissionAdministrator) || (memberPermissions&discordgo.PermissionManageServer == discordgo.PermissionManageServer) {
+	if (config.AccessMode == 1) || (member.User.ID == guild.OwnerID) || (memberPermissions&discordgo.PermissionAdministrator == discordgo.PermissionAdministrator) || (memberPermissions&discordgo.PermissionManageGuild == discordgo.PermissionManageGuild) {
 		return true
 	}
 
